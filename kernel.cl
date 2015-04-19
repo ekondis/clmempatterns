@@ -17,12 +17,22 @@ int reduce_int4(int4 v)  { return v.x+v.y+v.z+v.w; }
 int reduce_int8(int8 v)  { return v.s0+v.s1+v.s2+v.s3+v.s4+v.s5+v.s6+v.s7; }
 int reduce_int16(int16 v){ return v.s0+v.s1+v.s2+v.s3+v.s4+v.s5+v.s6+v.s7+v.s8+v.s9+v.sA+v.sB+v.sC+v.sD+v.sE+v.sF; }
 
-__kernel void kernel(__global const DATATYPE *data, __global const unsigned int *result, const unsigned int n) {
+__kernel void initialize(__global DATATYPE *data, const unsigned int n) {
+	const unsigned int id = get_global_id(0);
+	const unsigned int stride = get_global_size(0);
+	unsigned int offset = 0;
+	while( id+offset<n ){
+		data[id+offset] = (DATATYPE)0;
+		offset += stride;
+	}
+}
+
+__kernel void kernel1(__global DATATYPE *data, __global unsigned int *result, const unsigned int n) {
 	// Get our global thread ID
 	const unsigned int id = get_global_id(0);
 	const unsigned int  low_order_id = id & (  STRIDE - 1 );
 	const unsigned int high_order_id = id & (~(STRIDE - 1));
-	unsigned int index = (high_order_id << GRANULARITY_ORDER) | low_order_id;
+	const unsigned int index = (high_order_id << GRANULARITY_ORDER) | low_order_id;
 	const int localid = get_local_id(0);
 	const int group_size = get_local_size(0);
 	__local unsigned int lcount;

@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
 //#include <malloc.h>
 //#include <string.h>
 #include <alloca.h>
@@ -24,6 +25,14 @@ unsigned int pow2(unsigned int v){
 void init_data(int *data, unsigned int len){
 	for(int i=0; i<len; i++)
 		data[i] = 0;
+}
+
+void flushed_printf(const char* format, ...){
+	va_list args;
+	va_start(args, format);
+	vprintf(format, args);
+	va_end(args);
+	fflush(stdout);
 }
 
 void CL_CALLBACK ctxErrorCallback(const char *errInfo, const void *private_info, size_t cb, void *user_data){
@@ -123,6 +132,40 @@ void cl_helper_ValidateDeviceSelection(cl_device_id dev){
 	printf("Selected device: %s\n", cl_dev_name);
 }
 
+cl_program cl_helper_CreateBuildProgram(cl_context context, cl_device_id device, const char* src, const char *options){
+	const char *all_sources[1] = {src};
+	cl_int errno;
+	flushed_printf("Creating program...");
+	cl_program program = clCreateProgramWithSource(context, 1, all_sources, NULL, &errno);
+	OCL_SAFE_CALL(errno);
+	flushed_printf("Ok\n");
+
+	flushed_printf("Building program...");
+	errno = clBuildProgram(program, 1, &device, options, NULL, NULL);
+	flushed_printf("Ok\n");
+
+	if( errno!=CL_SUCCESS ){
+		char log[10000];
+		OCL_SAFE_CALL( clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, sizeof(log), log, NULL) );
+		OCL_SAFE_CALL( clReleaseProgram(program) );
+		puts(log);
+		exit(EXIT_FAILURE);
+	}
+	return program;
+}
+
+/*
+double loclGetEventExecTimeAndRelease(cl_event ev){
+	cl_ulong ev_t_start, ev_t_finish;
+	OCL_SAFE_CALL( clWaitForEvents(1, &ev) );
+	OCL_SAFE_CALL( clGetEventProfilingInfo(ev, CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &ev_t_start, NULL) );
+	OCL_SAFE_CALL( clGetEventProfilingInfo(ev, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &ev_t_finish, NULL) );
+	double time = (ev_t_finish-ev_t_start)/1000000000.0;
+	OCL_SAFE_CALL( clReleaseEvent( ev ) );
+	return time;
+}
+*/
+
 int main(int argc, char* argv[]){
 	printf("clmempatterns rel. 0.X\n");
 	printf("developed by Elias Konstantinidis (ekondis@gmail.com)\n\n");
@@ -140,13 +183,14 @@ int main(int argc, char* argv[]){
 	cl_device_id selected_device_id = cl_helper_SelectDevice( atoi(argv[1]) );
 	cl_helper_ValidateDeviceSelection( selected_device_id );
 
-	unsigned int log2_indexes = argc<3 ? 24 : atoi(argv[2]);
+	unsigned int log2_indexes = argc<3 ? 22 : atoi(argv[2]);
 	unsigned int log2_grid    = argc<4 ? 18 : atoi(argv[3]);
 	unsigned int log2_wgroup  = argc<5 ?  8 : atoi(argv[4]);
 	unsigned int vecsize      = argc<6 ?  2 : atoi(argv[5]); // 1, 2, 4, 8, 16
 
-	printf("\nindex space %d\n", pow2(log2_indexes));
-//	printf("vector memory size %d\n", pow2(log2_vecsize)*sizeof(int));
+	printf("\nBenchmark parameters:\n");
+	printf("index space %d\n", pow2(log2_indexes));
+	printf("vector length %d\n", vecsize);
 	printf("element space %d\n", pow2(log2_indexes)*vecsize);
 	printf("Required memory %lu MB\n", pow2(log2_indexes)*vecsize*sizeof(int)/1024/1024);
 	printf("grid space %d\n", pow2(log2_grid));
@@ -201,4 +245,83 @@ int main(int argc, char* argv[]){
 		printf("\n");
 	}
 puts(c_kernel);
+
+	// Get platform ID
+	cl_platform_id platform_id;
+	OCL_SAFE_CALL( clGetDeviceInfo(selected_device_id, CL_DEVICE_PLATFORM, sizeof(cl_platform_id), &platform_id, NULL) );
+	// Set context properties
+	cl_context_properties ctxProps[] = { CL_CONTEXT_PLATFORM, (cl_context_properties)platform_id, 0 };
+
+	cl_int errno;
+	// Create context
+	cl_context context = clCreateContext(ctxProps, 1, &selected_device_id, ctxErrorCallback, NULL, &errno);
+	OCL_SAFE_CALL(errno);
+
+	// Get device limitations
+	cl_ulong MAX_WORKGROUP_SIZE;
+	OCL_SAFE_CALL( clGetDeviceInfo(selected_device_id, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(cl_ulong), &MAX_WORKGROUP_SIZE, NULL) );
+//	printf("max wg size %ld\n", MAX_WORKGROUP_SIZE);
+
+	// Create buffers
+	flushed_printf("Creating buffer...");
+	cl_mem dev_buffer = clCreateBuffer(context, CL_MEM_READ_WRITE, pow2(log2_indexes)*vecsize*sizeof(int), NULL, &errno);
+	OCL_SAFE_CALL(errno);
+	flushed_printf("Ok\n");
+
+	// Create command queue
+	cl_command_queue cmd_queue = clCreateCommandQueue(context, selected_device_id, CL_QUEUE_PROFILING_ENABLE, &errno);
+	OCL_SAFE_CALL(errno);
+
+	// Create and build program
+	char c_compile_options[4096] = "-cl-std=CL1.1";
+	//sprintf(compile_options, "-cl-fast-relaxed-math -cl-mad-enable -Doperator=%c -Dgranularity=%d -DSIMD_LEN=%d -Ddatatype=int%s -Dfdatatype=float%s %s -DSCALAR_TYPE=int -Dgrid_size=%zd -DTMP_S0=tmp%s -DWAVEFRONT_SIZE=%d -DVECTOR_REDUCTION(v)=(%s) ", op, granularity, simd_width, c_simd_len, c_simd_len, c_ddatatype, glWS[0], simd_width==1?"":".s0", (int)WAVEFRONT_SIZE, def_vecreduction);
+	cl_program program = cl_helper_CreateBuildProgram(context, selected_device_id, c_kernel, c_compile_options);
+
+	// Create kernels
+	cl_kernel kernel_init = clCreateKernel(program, "initialize", &errno);
+	OCL_SAFE_CALL(errno);
+	cl_kernel kernel1 = clCreateKernel(program, "kernel1", &errno);
+	OCL_SAFE_CALL(errno);
+
+	// Initialize variables
+	int index_space = pow2(log2_indexes);
+	const size_t glWS[1] = {index_space/pow2(log2_indexes-log2_grid)};
+	const size_t lcWS[1] = {pow2(log2_wgroup)};
+
+	// Initialize buffer
+	flushed_printf("Zeroing buffer...");
+	OCL_SAFE_CALL( clSetKernelArg(kernel_init, 0, sizeof(cl_mem), &dev_buffer) );
+	OCL_SAFE_CALL( clSetKernelArg(kernel_init, 1, sizeof(cl_int), &index_space) );
+//	errorCode = clEnqueueNDRangeKernel(cmd_queue, kernel_init, 1, NULL, glWS, lcWS, 0, NULL, NULL);
+	OCL_SAFE_CALL( clEnqueueNDRangeKernel(cmd_queue, kernel_init, 1, NULL, glWS, lcWS, 0, NULL, NULL) );
+/*	switch( errorCode ){
+		case CL_SUCCESS:
+			time = loclGetEventExecTimeAndRelease(ev_wait);
+			printf("Reduction kernel execution done (%f secs, %f GB/sec bandwidth)\n", time, 1.0*VEC_SIZ*sizeof(int)/(time*1000.0*1000.0*1000.0));
+			break;
+		case CL_OUT_OF_RESOURCES:
+			fprintf(stderr, "Error: CL_OUT_OF_RESOURCES\n");
+			exit(1);
+		case CL_INVALID_WORK_GROUP_SIZE:
+			fprintf(stderr, "Error: CL_INVALID_WORK_GROUP_SIZE\n");
+			exit(1);
+		default:
+			OCL_SAFE_CALL( errorCode );
+	}*/
+	OCL_SAFE_CALL( clFinish(cmd_queue) );
+	flushed_printf("Ok\n");
+	
+	// Release program and kernels
+	OCL_SAFE_CALL( clReleaseKernel(kernel_init) );
+	OCL_SAFE_CALL( clReleaseKernel(kernel1) );
+	OCL_SAFE_CALL( clReleaseProgram(program) );
+
+	// Release command queue
+	OCL_SAFE_CALL( clReleaseCommandQueue(cmd_queue) );
+
+	// Release buffer
+	OCL_SAFE_CALL( clReleaseMemObject(dev_buffer) );
+
+	// Release context
+	OCL_SAFE_CALL( clReleaseContext(context) );
 }
