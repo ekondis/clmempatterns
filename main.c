@@ -24,6 +24,10 @@ unsigned int pow2(unsigned int v){
 	return 1 << v;
 }
 
+double sqr(double v){
+	return v*v;
+}
+
 void init_data(int *data, unsigned int len){
 	for(int i=0; i<(int)len; i++)
 		data[i] = 0;
@@ -35,6 +39,25 @@ void flushed_printf(const char* format, ...){
 	vprintf(format, args);
 	va_end(args);
 	fflush(stdout);
+}
+
+void show_progress_init(int length){
+	flushed_printf("[");
+	for(int i=0; i<length; i++)
+		flushed_printf(".");
+	flushed_printf("]");
+	for(int i=0; i<=length; i++)
+		flushed_printf("\b");
+}
+
+void show_progress_step(int domove, char newchar){
+	flushed_printf("%c", newchar);
+	if( !domove )
+		flushed_printf("\b");
+}
+
+void show_progress_done(void){
+	flushed_printf("\n");
 }
 
 void CL_CALLBACK ctxErrorCallback(const char *errInfo, const void *private_info, size_t cb, void *user_data){
@@ -131,20 +154,37 @@ void cl_helper_ValidateDeviceSelection(cl_device_id dev){
 	OCL_SAFE_CALL( clGetDeviceInfo(dev, CL_DEVICE_NAME, 0, NULL, &len) );
 	char *cl_dev_name = (char*)alloca( len );
 	OCL_SAFE_CALL( clGetDeviceInfo(dev, CL_DEVICE_NAME, len, cl_dev_name, NULL) );
-	printf("Selected device: %s\n", cl_dev_name);
+	
+	OCL_SAFE_CALL( clGetDeviceInfo(dev, CL_DRIVER_VERSION, 0, NULL, &len) );
+	char *cl_driver_version = (char*)alloca( len );
+	OCL_SAFE_CALL( clGetDeviceInfo(dev, CL_DRIVER_VERSION, len, cl_driver_version, NULL) );
+	
+	cl_platform_id platform;
+	OCL_SAFE_CALL( clGetDeviceInfo(dev, CL_DEVICE_PLATFORM, sizeof(platform), &platform, NULL) );
+
+	OCL_SAFE_CALL( clGetPlatformInfo(platform, CL_PLATFORM_NAME, 0, NULL, &len) );
+	char *cl_plf_name = (char*)alloca( len );
+	OCL_SAFE_CALL( clGetPlatformInfo(platform, CL_PLATFORM_NAME, len, cl_plf_name, NULL) );
+
+	printf("Selected platform: %s\n", cl_plf_name);
+	printf("Selected device  : %s\n", cl_dev_name);
+	printf("Driver version   : %s\n", cl_driver_version);
 }
 
 cl_program cl_helper_CreateBuildProgram(cl_context context, cl_device_id device, const char* src, const char *options){
 	const char *all_sources[1] = {src};
 	cl_int errno;
-	flushed_printf("Creating program...");
+//	show_progress_step(0, '\\');
+//	flushed_printf("Creating program... ");
 	cl_program program = clCreateProgramWithSource(context, 1, all_sources, NULL, &errno);
 	OCL_SAFE_CALL(errno);
 //	flushed_printf("Ok\n");
+	show_progress_step(0, '-');
 
-	flushed_printf("Building program...");
+//	flushed_printf("Building program... ");
 	errno = clBuildProgram(program, 1, &device, options, NULL, NULL);
-	flushed_printf("Ok\n");
+//	flushed_printf("Ok\n");
+	show_progress_step(1, 'X');
 
 	if( errno!=CL_SUCCESS ){
 		char log[10000];
@@ -167,7 +207,7 @@ double cl_helper_GetExecTimeAndRelease(cl_event ev){
 }
 
 int main(int argc, char* argv[]){
-	printf("clmempatterns rel. 0.X\n");
+	printf("clmempatterns rel. 0.1\n");
 	printf("developed by Elias Konstantinidis (ekondis@gmail.com)\n\n");
 
 	if( argc<2 ){
@@ -190,63 +230,30 @@ int main(int argc, char* argv[]){
 	const unsigned int max_log2_stride = log2_indexes>log2_grid ? log2_grid : 0;
 
 	printf("\nBenchmark parameters:\n");
-	printf("index space     : %d (int%d s)\n", pow2(log2_indexes), vecsize);
+	printf("index space     : %d (type: int%d)\n", pow2(log2_indexes), vecsize);
 	printf("vector length   : %d\n", vecsize);
 	//printf("element space   : %d\n", pow2(log2_indexes)*vecsize);
-	printf("Required memory : %lu MB\n", pow2(log2_indexes)*vecsize*sizeof(int)/1024/1024);
+	{
+		unsigned long int req_mem = pow2(log2_indexes)*vecsize*sizeof(int)/1024;
+		char req_mem_unit = 'K';
+		if( req_mem>1024*8 ){
+			req_mem /= 1024;
+			req_mem_unit = 'M';
+		}
+		if( req_mem>1024*8 ){
+			req_mem /= 1024;
+			req_mem_unit = 'G';
+		}
+		printf("required memory : %lu %cB\n", req_mem, req_mem_unit);
+	}
 	printf("grid space      : %d (%d workgroups)\n", pow2(log2_grid), pow2(log2_grid-log2_wgroup));
 	printf("workgroup size  : %d\n", pow2(log2_wgroup));
 	printf("total workgroups: %d\n", pow2(log2_grid-log2_wgroup));
 	printf("granularity     : %d\n", pow2(log2_indexes-log2_grid));
-	
-/*	printf("Full element space (bit format describing index space):\n");
-	for(int i=log2_indexes-1; i>=0; i--)
-		if( i % 10 == 0 )
-			printf("%d", i / 10);
-		else
-			printf(" ");
-	printf("\n");
-	for(int i=log2_indexes-1; i>=0; i--)
-		printf("%d", i % 10);
-	printf("\n");
-	for(int i=log2_indexes-1; i>=0; i--)
-		printf("X");
-	printf("\n");
-	for(int i=log2_indexes-1; i>=0; i--)
-		if( i<(int)log2_grid )
-			printf("P");
-		else
-			printf("I");
-	printf("\n");
-	for(int i=log2_indexes-1; i>=0; i--)
-		if( i<(int)log2_grid )
-			if( i<(int)log2_wgroup )
-				printf("W");
-			else
-				printf("N");
-		else
-			printf("I");
-	printf("\n\n");
-	
-	for(int stride_offset=0; stride_offset<(int)(log2_indexes>log2_grid ? log2_grid+1 : 1); stride_offset++){
-		printf("Stride offset %d:\n", stride_offset);
-		for(int i=log2_indexes-1, p=log2_grid; i>=0; i--)
-			if( i<(int)(log2_indexes-stride_offset) && i>=(int)(log2_grid-stride_offset) )
-				printf("I");
-			else {
-				if( p<=(int)log2_wgroup )
-					printf("W");
-				else
-					printf("N");
-				p--;
-			}
-		if( stride_offset == 0 ) printf(" Special case: All workitems access sequential elements in grid strides");
-		if( stride_offset == log2_grid-log2_wgroup ) printf(" Special case: All workitems access sequential elements in workgroup strides");
-		if( stride_offset == log2_grid ) printf(" Special case: A workitem accesses only sequential elements");
-		printf("\n");
-	}*/
+
 //puts(c_kernel);
 
+	printf("\nPlatform initialization:\n");
 	// Get platform ID
 	cl_platform_id platform_id;
 	OCL_SAFE_CALL( clGetDeviceInfo(selected_device_id, CL_DEVICE_PLATFORM, sizeof(cl_platform_id), &platform_id, NULL) );
@@ -261,10 +268,9 @@ int main(int argc, char* argv[]){
 	// Get device limitations
 	cl_ulong MAX_WORKGROUP_SIZE;
 	OCL_SAFE_CALL( clGetDeviceInfo(selected_device_id, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(cl_ulong), &MAX_WORKGROUP_SIZE, NULL) );
-//	printf("max wg size %ld\n", MAX_WORKGROUP_SIZE);
 
 	// Create buffers
-	flushed_printf("Creating buffer...");
+	flushed_printf("Creating buffer... ");
 	cl_mem dev_buffer = clCreateBuffer(context, CL_MEM_READ_WRITE, pow2(log2_indexes)*vecsize*sizeof(int), NULL, &errno);
 	OCL_SAFE_CALL(errno);
 	flushed_printf("Ok\n");
@@ -274,18 +280,20 @@ int main(int argc, char* argv[]){
 	OCL_SAFE_CALL(errno);
 
 	// Create and build program
-	flushed_printf("Building programs...\n");
+	flushed_printf("Building programs... ");
 	char c_compile_options[4096];// = "-cl-std=CL1.1 -DDATATYPE=int2 -DSTRIDE_ORDER=18 -DGRANULARITY_ORDER=4";
 	cl_program *programs = (cl_program*)alloca(sizeof(cl_program)*(max_log2_stride+1));
+	show_progress_init(max_log2_stride+1);
 	for(int stride_offset=0; stride_offset<=max_log2_stride; stride_offset++){
 		sprintf(c_compile_options, "-cl-std=CL1.1 -DDATATYPE=int%c -DSTRIDE_ORDER=%d -DGRANULARITY_ORDER=%d", (vecsize==1 ? ' ' : ('0'+vecsize)), stride_offset, log2_indexes-log2_grid);
 		//printf("Using options %s\n", c_compile_options);
 		programs[stride_offset] = cl_helper_CreateBuildProgram(context, selected_device_id, c_kernel, c_compile_options);
 	}
+	show_progress_done();
 	//flushed_printf("Ok\n");
 
 	// Create kernels
-	flushed_printf("Creating kernels...");
+	flushed_printf("Creating kernels... ");
 	cl_kernel *kernels_init = (cl_kernel*)alloca(sizeof(cl_kernel)*(max_log2_stride+1));
 	cl_kernel *kernels1 = (cl_kernel*)alloca(sizeof(cl_kernel)*(max_log2_stride+1));
 	for(int stride_offset=0; stride_offset<=max_log2_stride; stride_offset++){
@@ -304,7 +312,7 @@ int main(int argc, char* argv[]){
 	cl_event ev_wait;
 
 	// Initialize buffer
-	flushed_printf("Zeroing buffer...");
+	flushed_printf("Zeroing buffer... ");
 	OCL_SAFE_CALL( clSetKernelArg(kernels_init[0], 0, sizeof(cl_mem), &dev_buffer) );
 	OCL_SAFE_CALL( clSetKernelArg(kernels_init[0], 1, sizeof(cl_int), &index_space) );
 	OCL_SAFE_CALL( clSetKernelArg(kernels_init[0], 2, sizeof(cl_int), &zero) );
@@ -327,43 +335,51 @@ int main(int argc, char* argv[]){
 	OCL_SAFE_CALL( clFinish(cmd_queue) );
 	flushed_printf("Ok\n");
 
+	printf("\nExperiment execution:\n");
 	double *total_times = (double*)alloca(sizeof(double)*(max_log2_stride+1));
 	// iterate over stride values
 	for(int stride_offset=0; stride_offset<=max_log2_stride; stride_offset++){
-		printf("Stride offset %d:", stride_offset);
-		if( stride_offset == log2_grid ) printf(" Special case: All workitems access sequential elements in grid strides");
-		if( stride_offset == log2_wgroup ) printf(" Special case: All workitems access sequential elements in workgroup strides");
-		if( stride_offset == 0 ) printf(" Special case: A workitem accesses only sequential elements");
-		puts("");
+		printf("Stride offset %2d:", stride_offset);
 
 		// warm up
-		flushed_printf("Warmimg up...");
+		flushed_printf("Warmimg up... ");
 		OCL_SAFE_CALL( clSetKernelArg(kernels1[stride_offset], 0, sizeof(cl_mem), &dev_buffer) );
 		OCL_SAFE_CALL( clSetKernelArg(kernels1[stride_offset], 1, sizeof(cl_int), &index_space) );
 		OCL_SAFE_CALL( clEnqueueNDRangeKernel(cmd_queue, kernels1[stride_offset], 1, NULL, glWS, lcWS, 0, NULL, &ev_wait) );
 		double time = cl_helper_GetExecTimeAndRelease(ev_wait);
-//		flushed_printf("Ok\n");
+		//flushed_printf("Ok ");
 	//	printf("Done in %f msecs (%.3f GB/sec bandwidth)\n", 1000.0*time, pow2(log2_indexes)*vecsize*sizeof(int)/(time*1000.0*1000.0*1000.0));
 
 		// run benchmarks (10 times)
 		const int REPETITIONS = 10;
-		double total_time = 0.;
+		double average_time = 0., variance = 0.;
 		OCL_SAFE_CALL( clSetKernelArg(kernels1[stride_offset], 0, sizeof(cl_mem), &dev_buffer) );
 		OCL_SAFE_CALL( clSetKernelArg(kernels1[stride_offset], 1, sizeof(cl_int), &index_space) );
-		flushed_printf("Benchmarking...");
+		flushed_printf("Benchmarking... ");
+		show_progress_init(REPETITIONS);
 		for(int i=0; i<REPETITIONS; i++){
+			show_progress_step(0, '-');
 			OCL_SAFE_CALL( clEnqueueNDRangeKernel(cmd_queue, kernels1[stride_offset], 1, NULL, glWS, lcWS, 0, NULL, &ev_wait) );
 			double time = cl_helper_GetExecTimeAndRelease(ev_wait);
-			total_time += time;
+			variance += (i+1)*sqr(time - average_time)/((i+1)+1);
+			average_time = ((i)*average_time + time)/((i)+1);
+			show_progress_step(1, 'X');
+			//flushed_printf("%d: time : %e avg: %e var: %e \n", i, time, average_time, variance);
 		}
-		flushed_printf("Ok\n");
-		time = total_time / REPETITIONS;
-		total_times[stride_offset] = total_time / REPETITIONS;
+		show_progress_done();
+		//flushed_printf("Ok\n");
+//		time = total_time / REPETITIONS;
+		total_times[stride_offset] = average_time;//total_time / REPETITIONS;
 	}
 
+	printf("\nSummary:");
 	for(int stride_offset=0; stride_offset<=max_log2_stride; stride_offset++){
-		flushed_printf("Stride magnitude %2d: Average time %f msecs (%.3f GB/sec bandwidth)\n", stride_offset, 1000.0*total_times[stride_offset], pow2(log2_indexes)*vecsize*sizeof(int)/(total_times[stride_offset]*1000.0*1000.0*1000.0));
+		printf("\nStride magnitude %2d: Bandwidth %7.3f GB/sec (avg time %10f msecs)", stride_offset, pow2(log2_indexes)*vecsize*sizeof(int)/(total_times[stride_offset]*1000.0*1000.0*1000.0), 1000.0*total_times[stride_offset]);
+		if( stride_offset == log2_grid ) printf(" *Special case: All workitems access sequential elements doing grid strides");
+		if( stride_offset == log2_wgroup ) printf(" *Special case: All workitems access sequential elements doing workgroup strides");
+		if( stride_offset == 0 ) printf(" *Special case: A workitem accesses elements only sequentially");
 	}
+	printf("\n");
 	
 	// Release program and kernels
 	for(int stride_offset=0; stride_offset<=max_log2_stride; stride_offset++){
