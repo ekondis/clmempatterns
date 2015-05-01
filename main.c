@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <malloc.h>
+#include <math.h>
 //#include <string.h>
 #ifndef _MSC_VER
 #include <alloca.h>
@@ -44,7 +45,7 @@ void flushed_printf(const char* format, ...){
 void show_progress_init(int length){
 	flushed_printf("[");
 	for(int i=0; i<length; i++)
-		flushed_printf(".");
+		flushed_printf(" ");
 	flushed_printf("]");
 	for(int i=0; i<=length; i++)
 		flushed_printf("\b");
@@ -179,12 +180,12 @@ cl_program cl_helper_CreateBuildProgram(cl_context context, cl_device_id device,
 	cl_program program = clCreateProgramWithSource(context, 1, all_sources, NULL, &errno);
 	OCL_SAFE_CALL(errno);
 //	flushed_printf("Ok\n");
-	show_progress_step(0, '-');
+	show_progress_step(0, '>');
 
 //	flushed_printf("Building program... ");
 	errno = clBuildProgram(program, 1, &device, options, NULL, NULL);
 //	flushed_printf("Ok\n");
-	show_progress_step(1, 'X');
+	show_progress_step(1, '#');
 
 	if( errno!=CL_SUCCESS ){
 		char log[10000];
@@ -207,7 +208,7 @@ double cl_helper_GetExecTimeAndRelease(cl_event ev){
 }
 
 int main(int argc, char* argv[]){
-	printf("clmempatterns rel. 0.1\n");
+	printf("clmempatterns rel. 0.1git\n");
 	printf("developed by Elias Konstantinidis (ekondis@gmail.com)\n\n");
 
 	if( argc<2 ){
@@ -284,7 +285,7 @@ int main(int argc, char* argv[]){
 	char c_compile_options[4096];// = "-cl-std=CL1.1 -DDATATYPE=int2 -DSTRIDE_ORDER=18 -DGRANULARITY_ORDER=4";
 	cl_program *programs = (cl_program*)alloca(sizeof(cl_program)*(max_log2_stride+1));
 	show_progress_init(max_log2_stride+1);
-	for(int stride_offset=0; stride_offset<=max_log2_stride; stride_offset++){
+	for(int stride_offset=0; stride_offset<=(int)max_log2_stride; stride_offset++){
 		sprintf(c_compile_options, "-cl-std=CL1.1 -DDATATYPE=int%c -DSTRIDE_ORDER=%d -DGRANULARITY_ORDER=%d", (vecsize==1 ? ' ' : ('0'+vecsize)), stride_offset, log2_indexes-log2_grid);
 		//printf("Using options %s\n", c_compile_options);
 		programs[stride_offset] = cl_helper_CreateBuildProgram(context, selected_device_id, c_kernel, c_compile_options);
@@ -296,7 +297,7 @@ int main(int argc, char* argv[]){
 	flushed_printf("Creating kernels... ");
 	cl_kernel *kernels_init = (cl_kernel*)alloca(sizeof(cl_kernel)*(max_log2_stride+1));
 	cl_kernel *kernels1 = (cl_kernel*)alloca(sizeof(cl_kernel)*(max_log2_stride+1));
-	for(int stride_offset=0; stride_offset<=max_log2_stride; stride_offset++){
+	for(int stride_offset=0; stride_offset<=(int)max_log2_stride; stride_offset++){
 		kernels_init[stride_offset] = clCreateKernel(programs[stride_offset], "initialize", &errno);
 		OCL_SAFE_CALL(errno);
 		kernels1[stride_offset] = clCreateKernel(programs[stride_offset], "kernel1", &errno);
@@ -335,45 +336,62 @@ int main(int argc, char* argv[]){
 	OCL_SAFE_CALL( clFinish(cmd_queue) );
 	flushed_printf("Ok\n");
 
-	printf("\nExperiment execution:\n");
+	printf("\nExperimental execution:\n");
 	double *total_times = (double*)alloca(sizeof(double)*(max_log2_stride+1));
 	// iterate over stride values
-	for(int stride_offset=0; stride_offset<=max_log2_stride; stride_offset++){
-		printf("Stride offset %2d:", stride_offset);
+	const int REPETITIONS = 10;
+	flushed_printf("Running... ");
+	show_progress_init( max_log2_stride+1 );
+	for(int stride_offset=0; stride_offset<=(int)max_log2_stride; stride_offset++){
+		show_progress_step(0, '>');
+		//printf("Stride offset %2d:", stride_offset);
+		//printf("\\|/-\n");
 
 		// warm up
-		flushed_printf("Warmimg up... ");
+		//flushed_printf("Warmimg up... ");
 		OCL_SAFE_CALL( clSetKernelArg(kernels1[stride_offset], 0, sizeof(cl_mem), &dev_buffer) );
 		OCL_SAFE_CALL( clSetKernelArg(kernels1[stride_offset], 1, sizeof(cl_int), &index_space) );
-		OCL_SAFE_CALL( clEnqueueNDRangeKernel(cmd_queue, kernels1[stride_offset], 1, NULL, glWS, lcWS, 0, NULL, &ev_wait) );
-		double time = cl_helper_GetExecTimeAndRelease(ev_wait);
+		OCL_SAFE_CALL( clEnqueueNDRangeKernel(cmd_queue, kernels1[stride_offset], 1, NULL, glWS, lcWS, 0, NULL, NULL) );
+		//cl_helper_GetExecTimeAndRelease(ev_wait);
+		OCL_SAFE_CALL( clFinish(cmd_queue) );
 		//flushed_printf("Ok ");
 	//	printf("Done in %f msecs (%.3f GB/sec bandwidth)\n", 1000.0*time, pow2(log2_indexes)*vecsize*sizeof(int)/(time*1000.0*1000.0*1000.0));
 
-		// run benchmarks (10 times)
-		const int REPETITIONS = 10;
-		double average_time = 0., variance = 0.;
+		// run benchmarks multiple times
+		double *times = (double*)alloca(sizeof(double)*REPETITIONS);
 		OCL_SAFE_CALL( clSetKernelArg(kernels1[stride_offset], 0, sizeof(cl_mem), &dev_buffer) );
 		OCL_SAFE_CALL( clSetKernelArg(kernels1[stride_offset], 1, sizeof(cl_int), &index_space) );
-		flushed_printf("Benchmarking... ");
-		show_progress_init(REPETITIONS);
+		//flushed_printf("Benchmarking... ");
 		for(int i=0; i<REPETITIONS; i++){
-			show_progress_step(0, '-');
+			const char chr_progress[] = "\\|/-";
+			show_progress_step(0, chr_progress[i%4]);
 			OCL_SAFE_CALL( clEnqueueNDRangeKernel(cmd_queue, kernels1[stride_offset], 1, NULL, glWS, lcWS, 0, NULL, &ev_wait) );
-			double time = cl_helper_GetExecTimeAndRelease(ev_wait);
-			variance += (i+1)*sqr(time - average_time)/((i+1)+1);
-			average_time = ((i)*average_time + time)/((i)+1);
-			show_progress_step(1, 'X');
-			//flushed_printf("%d: time : %e avg: %e var: %e \n", i, time, average_time, variance);
+			times[i] = cl_helper_GetExecTimeAndRelease(ev_wait);
 		}
-		show_progress_done();
+		show_progress_step(1, '#');
+		double average_time = 0., variance = 0.;
+		for(int i=0; i<REPETITIONS; i++)
+			average_time += times[i];
+		average_time /= REPETITIONS;
+		for(int i=0; i<REPETITIONS; i++)
+			variance += sqr(times[i]-average_time);
+		variance /= REPETITIONS;
+		double variation_coeff = sqrt(variance)/average_time;
+		const double VAR_COEFF_THRESHOLD = 0.3;
 		//flushed_printf("Ok\n");
-//		time = total_time / REPETITIONS;
 		total_times[stride_offset] = average_time;//total_time / REPETITIONS;
+		if(variation_coeff>VAR_COEFF_THRESHOLD){
+			fprintf(stderr, "ERROR: Variation coefficient of execution time (%5.3f) exceeded threshold (%5.3f).\n", variation_coeff, VAR_COEFF_THRESHOLD);
+			//for(int i=0; i<REPETITIONS; i++)
+			//	fprintf(stderr, "%e, ", times[i]);
+			//fprintf(stderr, "}\n");
+			exit(1);
+		}
 	}
+	show_progress_done();
 
 	printf("\nSummary:");
-	for(int stride_offset=0; stride_offset<=max_log2_stride; stride_offset++){
+	for(int stride_offset=0; stride_offset<=(int)max_log2_stride; stride_offset++){
 		printf("\nStride magnitude %2d: Bandwidth %7.3f GB/sec (avg time %10f msecs)", stride_offset, pow2(log2_indexes)*vecsize*sizeof(int)/(total_times[stride_offset]*1000.0*1000.0*1000.0), 1000.0*total_times[stride_offset]);
 		if( stride_offset == log2_grid ) printf(" *Special case: All workitems access sequential elements doing grid strides");
 		if( stride_offset == log2_wgroup ) printf(" *Special case: All workitems access sequential elements doing workgroup strides");
@@ -382,7 +400,7 @@ int main(int argc, char* argv[]){
 	printf("\n");
 	
 	// Release program and kernels
-	for(int stride_offset=0; stride_offset<=max_log2_stride; stride_offset++){
+	for(int stride_offset=0; stride_offset<=(int)max_log2_stride; stride_offset++){
 		OCL_SAFE_CALL( clReleaseKernel(kernels_init[stride_offset]) );
 		OCL_SAFE_CALL( clReleaseKernel(kernels1[stride_offset]) );
 		OCL_SAFE_CALL( clReleaseProgram(programs[stride_offset]) );
