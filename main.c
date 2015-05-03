@@ -5,7 +5,7 @@
 #include <stdarg.h>
 #include <malloc.h>
 #include <math.h>
-//#include <string.h>
+#include <string.h>
 #ifndef _MSC_VER
 #include <alloca.h>
 #endif
@@ -211,24 +211,78 @@ int main(int argc, char* argv[]){
 	printf("clmempatterns rel. 0.1git\n");
 	printf("developed by Elias Konstantinidis (ekondis@gmail.com)\n\n");
 
-	if( argc<2 ){
-		printf("parameters:\n");
-		printf("clmempatterns {device index} [index magnitude [grid magnitude [workgroup magnitude [vector size]]]]\n");
+	// Parameters
+	cl_device_id selected_device_id = (cl_device_id)-1;
+	unsigned int log2_indexes = 22;
+	unsigned int log2_grid    = 18;
+	unsigned int log2_wgroup  =  8;
+	unsigned int vecsize      =  2; // 1, 2, 4, 8, 16
+	char *foutput = NULL;
+
+	// parse arguments
+	int arg_count = 0;
+	for(int i=1; i<argc; i++) {
+		if( (strcmp(argv[i], "-h")==0) || (strcmp(argv[i], "--help")==0) ) {
+			selected_device_id = (cl_device_id)-1;
+			break;
+		} else if( (strcmp(argv[i], "-o")==0) || (strcmp(argv[i], "--output")==0) ) {
+			foutput = (char*)alloca(sizeof(char)*strlen(argv[i+1]));
+			strcpy(foutput, argv[i+1]);
+			break;
+		} else {
+			unsigned long value = strtoul(argv[i], NULL, 10);
+			switch( arg_count ){
+				// device selection
+				case 0:
+					selected_device_id = cl_helper_SelectDevice( value );
+					arg_count++;
+					break;
+				// index magnitude
+				case 1:
+					log2_indexes = strtoul(argv[2], NULL, 10);
+					arg_count++;
+					break;
+				// grid magnitude
+				case 2:
+					log2_grid    = strtoul(argv[3], NULL, 10);
+					arg_count++;
+					break;
+				// workgroup size magnitude
+				case 3:
+					log2_wgroup  = strtoul(argv[4], NULL, 10);
+					arg_count++;
+					break;
+				// vector size
+				case 4:
+					vecsize      = strtoul(argv[5], NULL, 10); // 1, 2, 4, 8, 16
+					arg_count++;
+					break;
+				default:
+					selected_device_id = (cl_device_id)-1;
+			}
+		}
+	}
+
+	if( selected_device_id == (cl_device_id)-1 ){
+		printf("Usage: clmempatterns [options] {device index} [index magnitude [grid magnitude [workgroup magnitude [vector size]]]]\n");
 		printf("All magnitudes are expressed as radix 2 logarithms of the respective quatities (e.g. magnitude of 10 implies 2^10=1024)\n\n");
+		printf("Options:\n"
+			"-h or --help          Show this message\n"
+			"-o or --output <file> Save CSV output to <file>\n\n");
 
 		cl_helper_PrintAvailableDevices();
 
 		exit(1);
 	}
-	
-	cl_device_id selected_device_id = cl_helper_SelectDevice( atoi(argv[1]) );
+
 	cl_helper_ValidateDeviceSelection( selected_device_id );
 
-	const unsigned int log2_indexes = argc<3 ? 22 : atoi(argv[2]);
-	const unsigned int log2_grid    = argc<4 ? 18 : atoi(argv[3]);
-	const unsigned int log2_wgroup  = argc<5 ?  8 : atoi(argv[4]);
-	const unsigned int vecsize      = argc<6 ?  2 : atoi(argv[5]); // 1, 2, 4, 8, 16
 	const unsigned int max_log2_stride = log2_indexes>log2_grid ? log2_grid : 0;
+	
+	if( log2_indexes<log2_grid ){
+		fprintf(stderr, "\nERROR: Grid magnitude cannot exceed Index magnitude (%d>%d).\n", log2_grid, log2_indexes);
+		exit(1);
+	}
 
 	printf("\nBenchmark parameters:\n");
 	printf("index space     : %d (type: int%d)\n", pow2(log2_indexes), vecsize);
@@ -237,11 +291,11 @@ int main(int argc, char* argv[]){
 	{
 		unsigned long int req_mem = pow2(log2_indexes)*vecsize*sizeof(int)/1024;
 		char req_mem_unit = 'K';
-		if( req_mem>1024*8 ){
+		if( req_mem>=1024*8 ){
 			req_mem /= 1024;
 			req_mem_unit = 'M';
 		}
-		if( req_mem>1024*8 ){
+		if( req_mem>=1024*8 ){
 			req_mem /= 1024;
 			req_mem_unit = 'G';
 		}
@@ -381,7 +435,7 @@ int main(int argc, char* argv[]){
 		//flushed_printf("Ok\n");
 		total_times[stride_offset] = average_time;//total_time / REPETITIONS;
 		if(variation_coeff>VAR_COEFF_THRESHOLD){
-			fprintf(stderr, "ERROR: Variation coefficient of execution time (%5.3f) exceeded threshold (%5.3f).\n", variation_coeff, VAR_COEFF_THRESHOLD);
+			fprintf(stderr, "\nERROR: Variation coefficient of execution time (%5.3f) exceeded threshold (%5.3f).\n", variation_coeff, VAR_COEFF_THRESHOLD);
 			//for(int i=0; i<REPETITIONS; i++)
 			//	fprintf(stderr, "%e, ", times[i]);
 			//fprintf(stderr, "}\n");
@@ -390,14 +444,44 @@ int main(int argc, char* argv[]){
 	}
 	show_progress_done();
 
+	// Print results on screen
 	printf("\nSummary:");
 	for(int stride_offset=0; stride_offset<=(int)max_log2_stride; stride_offset++){
-		printf("\nStride magnitude %2d: Bandwidth %7.3f GB/sec (avg time %10f msecs)", stride_offset, pow2(log2_indexes)*vecsize*sizeof(int)/(total_times[stride_offset]*1000.0*1000.0*1000.0), 1000.0*total_times[stride_offset]);
+		printf("\nStride magnitude %2d: Bandwidth %7.3f GB/sec (avg time %10f msecs)", 
+			stride_offset, 
+			pow2(log2_indexes)*vecsize*sizeof(int)/(total_times[stride_offset]*1000.0*1000.0*1000.0), 
+			1000.0*total_times[stride_offset]);
 		if( stride_offset == log2_grid ) printf(" *Special case: All workitems access sequential elements doing grid strides");
 		if( stride_offset == log2_wgroup ) printf(" *Special case: All workitems access sequential elements doing workgroup strides");
 		if( stride_offset == 0 ) printf(" *Special case: A workitem accesses elements only sequentially");
 	}
 	printf("\n");
+	
+	// Save output if requested
+	if( foutput ){
+		printf("Writing results to %s\n", foutput);
+		FILE *of = fopen(foutput, "w");
+		if (of == NULL) {
+			fprintf(stderr, "Can't open output file %s!\n", foutput);
+			exit(1);
+		}
+		/*fprintf(of, "stride,    ex_time, bandwidth\n");
+		for(int stride_offset=0; stride_offset<=(int)max_log2_stride; stride_offset++)
+			fprintf(of, 
+				"%6d, %10f, %9.3f\n", 
+				stride_offset, 
+				1000.0*total_times[stride_offset], 
+				pow2(log2_indexes)*vecsize*sizeof(int)/(total_times[stride_offset]*1000.0*1000.0*1000.0));*/
+		for(int stride_offset=0; stride_offset<(int)max_log2_stride; stride_offset++)
+			fprintf(of, "%10d, ", stride_offset);
+		fprintf(of, "%10d ", (int)max_log2_stride);
+		fprintf(of, "\n");
+		for(int stride_offset=0; stride_offset<(int)max_log2_stride; stride_offset++)
+			fprintf(of, "%10.3f, ", pow2(log2_indexes)*vecsize*sizeof(int)/(total_times[stride_offset]*1000.0*1000.0*1000.0));
+		fprintf(of, "%10.3f ", pow2(log2_indexes)*vecsize*sizeof(int)/(total_times[max_log2_stride]*1000.0*1000.0*1000.0));
+		fprintf(of, "\n");
+		fclose(of);
+	}
 	
 	// Release program and kernels
 	for(int stride_offset=0; stride_offset<=(int)max_log2_stride; stride_offset++){
