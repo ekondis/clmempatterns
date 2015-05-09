@@ -265,7 +265,7 @@ int main(int argc, char* argv[]){
 
 	if( selected_device_id == (cl_device_id)-1 ){
 		printf("Usage: clmempatterns [options] {device index} [index magnitude [grid magnitude [workgroup magnitude [vector size]]]]\n");
-		printf("All magnitudes are expressed as radix 2 logarithms of the respective quatities (e.g. magnitude of 10 implies 2^10=1024)\n\n");
+		printf("All magnitudes are expressed in logarithmic scales (log2, e.g. 10 implies 2^10=1024)\n\n");
 		printf("Options:\n"
 			"-h or --help          Show this message\n"
 			"-o or --output <file> Save CSV output to <file>\n\n");
@@ -280,13 +280,13 @@ int main(int argc, char* argv[]){
 	const unsigned int max_log2_stride = log2_indexes>log2_grid ? log2_grid : 0;
 	
 	if( log2_indexes<log2_grid ){
-		fprintf(stderr, "\nERROR: Grid magnitude cannot exceed Index magnitude (%d>%d).\n", log2_grid, log2_indexes);
+		fprintf(stderr, "\nERROR: Grid magnitude cannot exceed index magnitude (%d>%d).\n", log2_grid, log2_indexes);
 		exit(1);
 	}
 
 	printf("\nBenchmark parameters:\n");
-	printf("index space     : %d (type: int%d)\n", pow2(log2_indexes), vecsize);
-	printf("vector length   : %d\n", vecsize);
+	printf("index space     : %d\n", pow2(log2_indexes));
+	printf("vector length   : %d (type: int%c)\n", vecsize, vecsize==1 ? ' ' : '0'+vecsize);
 	//printf("element space   : %d\n", pow2(log2_indexes)*vecsize);
 	{
 		unsigned long int req_mem = pow2(log2_indexes)*vecsize*sizeof(int)/1024;
@@ -360,8 +360,8 @@ int main(int argc, char* argv[]){
 	flushed_printf("Ok\n");
 
 	// Initialize variables
-	int index_space = pow2(log2_indexes);
-	const int zero=0, one=1;
+	cl_int index_space = pow2(log2_indexes);
+	const cl_int zero=0, one=1;
 	const size_t glWS[1] = {index_space/pow2(log2_indexes-log2_grid)};
 	const size_t lcWS[1] = {pow2(log2_wgroup)};
 	cl_event ev_wait;
@@ -473,12 +473,12 @@ int main(int argc, char* argv[]){
 				1000.0*total_times[stride_offset], 
 				pow2(log2_indexes)*vecsize*sizeof(int)/(total_times[stride_offset]*1000.0*1000.0*1000.0));*/
 		for(int stride_offset=0; stride_offset<(int)max_log2_stride; stride_offset++)
-			fprintf(of, "%10d, ", stride_offset);
-		fprintf(of, "%10d ", (int)max_log2_stride);
+			fprintf(of, "%7d, ", stride_offset);
+		fprintf(of, "%7d ", (int)max_log2_stride);
 		fprintf(of, "\n");
 		for(int stride_offset=0; stride_offset<(int)max_log2_stride; stride_offset++)
-			fprintf(of, "%10.3f, ", pow2(log2_indexes)*vecsize*sizeof(int)/(total_times[stride_offset]*1000.0*1000.0*1000.0));
-		fprintf(of, "%10.3f ", pow2(log2_indexes)*vecsize*sizeof(int)/(total_times[max_log2_stride]*1000.0*1000.0*1000.0));
+			fprintf(of, "%7.3f, ", pow2(log2_indexes)*vecsize*sizeof(int)/(total_times[stride_offset]*1000.0*1000.0*1000.0));
+		fprintf(of, "%7.3f ", pow2(log2_indexes)*vecsize*sizeof(int)/(total_times[max_log2_stride]*1000.0*1000.0*1000.0));
 		fprintf(of, "\n");
 		fclose(of);
 	}
