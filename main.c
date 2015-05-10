@@ -29,6 +29,13 @@ double sqr(double v){
 	return v*v;
 }
 
+int compare_doubles(const void *a, const void *b){
+	const double *v1 = (const double*)a;
+	const double *v2 = (const double*)b;
+	if( *v1 == *v2 ) return 0;
+	return *v1 > *v2 ? 1 : -1;
+}
+
 void init_data(int *data, unsigned int len){
 	for(int i=0; i<(int)len; i++)
 		data[i] = 0;
@@ -218,12 +225,16 @@ int main(int argc, char* argv[]){
 	unsigned int log2_wgroup  =  8;
 	unsigned int vecsize      =  2; // 1, 2, 4, 8, 16
 	char *foutput = NULL;
+	int b_use_host_buffer     = 0; // default: device allocated buffer
 
 	// parse arguments
 	int arg_count = 0;
 	for(int i=1; i<argc; i++) {
 		if( (strcmp(argv[i], "-h")==0) || (strcmp(argv[i], "--help")==0) ) {
 			selected_device_id = (cl_device_id)-1;
+			break;
+		} else if( (strcmp(argv[i], "-H")==0) || (strcmp(argv[i], "--host")==0) ) {
+			b_use_host_buffer = 1;
 			break;
 		} else if( (strcmp(argv[i], "-o")==0) || (strcmp(argv[i], "--output")==0) ) {
 			foutput = (char*)alloca(sizeof(char)*strlen(argv[i+1]));
@@ -268,6 +279,7 @@ int main(int argc, char* argv[]){
 		printf("All magnitudes are expressed in logarithmic scales (log2, e.g. 10 implies 2^10=1024)\n\n");
 		printf("Options:\n"
 			"-h or --help          Show this message\n"
+			"-H or --host          Use host allocated buffer (zero copy)\n"
 			"-o or --output <file> Save CSV output to <file>\n\n");
 
 		cl_helper_PrintAvailableDevices();
@@ -305,6 +317,7 @@ int main(int argc, char* argv[]){
 	printf("workgroup size  : %d\n", pow2(log2_wgroup));
 	printf("total workgroups: %d\n", pow2(log2_grid-log2_wgroup));
 	printf("granularity     : %d\n", pow2(log2_indexes-log2_grid));
+	printf("allocated buffer: %s\n", b_use_host_buffer ? "Host" : "Device");
 
 //puts(c_kernel);
 
@@ -326,7 +339,10 @@ int main(int argc, char* argv[]){
 
 	// Create buffers
 	flushed_printf("Creating buffer... ");
-	cl_mem dev_buffer = clCreateBuffer(context, CL_MEM_READ_WRITE, pow2(log2_indexes)*vecsize*sizeof(int), NULL, &errno);
+	cl_mem_flags buf_flags = CL_MEM_READ_WRITE;
+	if( b_use_host_buffer )
+		buf_flags |= CL_MEM_ALLOC_HOST_PTR;
+	cl_mem dev_buffer = clCreateBuffer(context, buf_flags, pow2(log2_indexes)*vecsize*sizeof(int), NULL, &errno);
 	OCL_SAFE_CALL(errno);
 	flushed_printf("Ok\n");
 
@@ -393,7 +409,7 @@ int main(int argc, char* argv[]){
 	printf("\nExperimental execution:\n");
 	double *total_times = (double*)alloca(sizeof(double)*(max_log2_stride+1));
 	// iterate over stride values
-	const int REPETITIONS = 10;
+	const int REPETITIONS = 12;
 	flushed_printf("Running... ");
 	show_progress_init( max_log2_stride+1 );
 	for(int stride_offset=0; stride_offset<=(int)max_log2_stride; stride_offset++){
@@ -415,15 +431,17 @@ int main(int argc, char* argv[]){
 		double *times = (double*)alloca(sizeof(double)*REPETITIONS);
 		OCL_SAFE_CALL( clSetKernelArg(kernels1[stride_offset], 0, sizeof(cl_mem), &dev_buffer) );
 		OCL_SAFE_CALL( clSetKernelArg(kernels1[stride_offset], 1, sizeof(cl_int), &index_space) );
-		//flushed_printf("Benchmarking... ");
+		//int do_run_experiment = 1;
+		//while( do_run_experiment ){
 		for(int i=0; i<REPETITIONS; i++){
 			const char chr_progress[] = "\\|/-";
 			show_progress_step(0, chr_progress[i%4]);
 			OCL_SAFE_CALL( clEnqueueNDRangeKernel(cmd_queue, kernels1[stride_offset], 1, NULL, glWS, lcWS, 0, NULL, &ev_wait) );
 			times[i] = cl_helper_GetExecTimeAndRelease(ev_wait);
 		}
-		show_progress_step(1, '#');
-		double average_time = 0., variance = 0.;
+		qsort(times, REPETITIONS, sizeof(times[0]), compare_doubles);
+		const double median_time = REPETITIONS % 2 ? times[REPETITIONS/2] : (times[REPETITIONS/2-1]+times[REPETITIONS/2])/2;
+		/*double average_time = 0., variance = 0.;
 		for(int i=0; i<REPETITIONS; i++)
 			average_time += times[i];
 		average_time /= REPETITIONS;
@@ -431,16 +449,27 @@ int main(int argc, char* argv[]){
 			variance += sqr(times[i]-average_time);
 		variance /= REPETITIONS;
 		double variation_coeff = sqrt(variance)/average_time;
-		const double VAR_COEFF_THRESHOLD = 0.3;
+		const double VAR_COEFF_THRESHOLD = 0.03;
 		//flushed_printf("Ok\n");
-		total_times[stride_offset] = average_time;//total_time / REPETITIONS;
 		if(variation_coeff>VAR_COEFF_THRESHOLD){
 			fprintf(stderr, "\nERROR: Variation coefficient of execution time (%5.3f) exceeded threshold (%5.3f).\n", variation_coeff, VAR_COEFF_THRESHOLD);
-			//for(int i=0; i<REPETITIONS; i++)
-			//	fprintf(stderr, "%e, ", times[i]);
-			//fprintf(stderr, "}\n");
-			exit(1);
-		}
+			fprintf(stderr, "{");
+			for(int i=0; i<REPETITIONS; i++)
+				fprintf(stderr, "%e, ", times[i]);
+			fprintf(stderr, "}\n");
+			fprintf(stderr, "{");
+			for(int i=0; i<REPETITIONS; i++)
+				fprintf(stderr, "%6.2f, ", 100.*(times[i]-average_time)/average_time);
+			fprintf(stderr, "}\n");
+			fprintf(stderr, "{");
+			for(int i=0; i<REPETITIONS; i++)
+				fprintf(stderr, "%6.2f, ", 100.*(times[i]-median_time)/median_time);
+			fprintf(stderr, "}\n");
+			fprintf(stderr, "ERROR: Average (%e) Median (%e)\n", average_time, median_time);			
+			//exit(1);
+		}*/
+		show_progress_step(1, '#');
+		total_times[stride_offset] = median_time;//average_time;
 	}
 	show_progress_done();
 
