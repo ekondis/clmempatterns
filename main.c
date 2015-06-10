@@ -215,7 +215,7 @@ double cl_helper_GetExecTimeAndRelease(cl_event ev){
 }
 
 int main(int argc, char* argv[]){
-	printf("clmempatterns rel. 0.2\n");
+	printf("clmempatterns rel. 0.2git\n");
 	printf("Developed by Elias Konstantinidis (ekondis@gmail.com)\n\n");
 
 	// Parameters
@@ -235,11 +235,13 @@ int main(int argc, char* argv[]){
 			break;
 		} else if( (strcmp(argv[i], "-H")==0) || (strcmp(argv[i], "--host")==0) ) {
 			b_use_host_buffer = 1;
-			break;
 		} else if( (strcmp(argv[i], "-o")==0) || (strcmp(argv[i], "--output")==0) ) {
-			foutput = (char*)alloca(sizeof(char)*strlen(argv[i+1]));
-			strcpy(foutput, argv[i+1]);
-			break;
+			if( ++i>=argc ){
+				selected_device_id = (cl_device_id)-1;
+				break;
+			}
+			foutput = (char*)alloca(sizeof(char)*strlen(argv[i]));
+			strcpy(foutput, argv[i]);
 		} else {
 			unsigned long value = strtoul(argv[i], NULL, 10);
 			switch( arg_count ){
@@ -442,10 +444,10 @@ int main(int argc, char* argv[]){
 				variance += sqr(times[i]-average_time);
 			variance /= REPETITIONS;
 			double variation_coeff = sqrt(variance)/average_time;
-			const double VAR_COEFF_THRESHOLD = 0.1;
+			const double VAR_COEFF_THRESHOLD = 0.25;
 			if( variation_coeff<VAR_COEFF_THRESHOLD )
 				do_run_experiment = 0;
-			//else show_progress_step(1, 'E');
+			//else flushed_printf("%e\n", variation_coeff);//show_progress_step(1, 'E');
 			total_times[stride_offset] = median_time;//average_time;
 		}
 		/*if( max_variation_coeff<variation_coeff )
