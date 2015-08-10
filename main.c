@@ -319,7 +319,7 @@ int main(int argc, char* argv[]){
 	printf("workgroup size  : %d\n", pow2(log2_wgroup));
 	printf("total workgroups: %d\n", pow2(log2_grid-log2_wgroup));
 	printf("granularity     : %d\n", pow2(log2_indexes-log2_grid));
-	printf("allocated buffer: %s\n", b_use_host_buffer ? "Host" : "Device");
+	printf("allocated buffer: %s\n", b_use_host_buffer ? "host" : "device");
 
 //puts(c_kernel);
 

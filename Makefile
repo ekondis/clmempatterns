@@ -6,7 +6,7 @@ OCLSDKINC = ${OCLSDKDIR}/include
 OCLSDKLIB = ${OCLSDKDIR}/lib/x86_64/
 OPTFLAG = -O2
 FLAGS = ${OPTFLAG} -I${OCLSDKINC} -std=c99 -Wall
-LFLAGS = ${OMPFLAG} ${PROFLAG} -L${OCLSDKLIB}
+LFLAGS = -L${OCLSDKLIB}
 LIBPARS = -lOpenCL -lrt -lm
 
 clmempatterns: main.o
