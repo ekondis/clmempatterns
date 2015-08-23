@@ -509,7 +509,7 @@ int main(int argc, char* argv[]){
 				1000.0*total_times[stride_offset], 
 				pow2(log2_indexes)*vecsize*sizeof(int)/(total_times[stride_offset]*1000.0*1000.0*1000.0));*/
 		fprintf(of, "workgroup size, vector width, index space (log2), grid space (log2), workgroups, granularity, stride (log2), bandwidth (GB/sec), time (msecs)\n");
-		for(int stride_offset=0; stride_offset<(int)max_log2_stride; stride_offset++)
+		for(int stride_offset=0; stride_offset<=(int)max_log2_stride; stride_offset++)
 			fprintf(of, "%d, %d, %d, %d, %d, %d, %2d, %7.3f, %7.3f\n", pow2(log2_wgroup), vecsize, log2_indexes, log2_grid, pow2(log2_grid-log2_wgroup), pow2(log2_indexes-log2_grid), stride_offset, pow2(log2_indexes)*vecsize*sizeof(int)/(total_times[stride_offset]*1000.0*1000.0*1000.0), 1000.0*total_times[stride_offset]);
 		/*for(int stride_offset=0; stride_offset<(int)max_log2_stride; stride_offset++)
 			fprintf(of, "%7d, ", stride_offset);
