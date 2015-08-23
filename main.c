@@ -215,7 +215,7 @@ double cl_helper_GetExecTimeAndRelease(cl_event ev){
 }
 
 int main(int argc, char* argv[]){
-	printf("clmempatterns rel. 0.2git\n");
+	printf("clmempatterns rel. 0.3\n");
 	printf("Developed by Elias Konstantinidis (ekondis@gmail.com)\n\n");
 
 	// Parameters
@@ -265,7 +265,7 @@ int main(int argc, char* argv[]){
 					log2_wgroup  = strtoul(argv[4], NULL, 10);
 					arg_count++;
 					break;
-				// vector size
+				// vector width
 				case 4:
 					vecsize      = strtoul(argv[5], NULL, 10); // 1, 2, 4, 8, 16
 					arg_count++;
@@ -277,7 +277,7 @@ int main(int argc, char* argv[]){
 	}
 
 	if( selected_device_id == (cl_device_id)-1 ){
-		printf("Usage: clmempatterns [options] {device index} [index magnitude [grid magnitude [workgroup magnitude [vector size]]]]\n");
+		printf("Usage: clmempatterns [options] {device index} [index magnitude [grid magnitude [workgroup magnitude [vector width]]]]\n");
 		printf("* All magnitudes are expressed in base-2 logarithmic scales (e.g. 10 implies 2^10=1024)\n\n");
 		printf("Options:\n"
 			"-h or --help          Show this message\n"
@@ -291,6 +291,11 @@ int main(int argc, char* argv[]){
 
 	cl_helper_ValidateDeviceSelection( selected_device_id );
 
+	if( vecsize!=1 && vecsize!=2 && vecsize!=4 && vecsize!=8 && vecsize!=16 ){
+		fprintf(stderr, "\nERROR: Invalid vector width (%d). Must be 1, 2, 4, 8 or 16.\n", vecsize);
+		exit(1);
+	}
+
 	const unsigned int max_log2_stride = log2_indexes>log2_grid ? log2_grid : 0;
 	
 	if( log2_indexes<log2_grid ){
@@ -300,7 +305,7 @@ int main(int argc, char* argv[]){
 
 	printf("\nBenchmark parameters:\n");
 	printf("index space     : %d\n", pow2(log2_indexes));
-	printf("vector length   : %d (type: int%c)\n", vecsize, vecsize==1 ? ' ' : '0'+vecsize);
+	printf("vector width    : %d (type: int%c)\n", vecsize, vecsize==1 ? ' ' : '0'+vecsize);
 	//printf("element space   : %d\n", pow2(log2_indexes)*vecsize);
 	{
 		unsigned long int req_mem = pow2(log2_indexes)*vecsize*sizeof(int)/1024;
@@ -317,7 +322,7 @@ int main(int argc, char* argv[]){
 	}
 	printf("grid space      : %d (%d workgroups)\n", pow2(log2_grid), pow2(log2_grid-log2_wgroup));
 	printf("workgroup size  : %d\n", pow2(log2_wgroup));
-	printf("total workgroups: %d\n", pow2(log2_grid-log2_wgroup));
+	//printf("total workgroups: %d\n", pow2(log2_grid-log2_wgroup));
 	printf("granularity     : %d\n", pow2(log2_indexes-log2_grid));
 	printf("allocated buffer: %s\n", b_use_host_buffer ? "host" : "device");
 
@@ -340,7 +345,7 @@ int main(int argc, char* argv[]){
 	OCL_SAFE_CALL( clGetDeviceInfo(selected_device_id, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(cl_ulong), &MAX_WORKGROUP_SIZE, NULL) );
 
 	// Create buffers
-	flushed_printf("Creating buffer... ");
+	flushed_printf("Creating buffer...   ");
 	cl_mem_flags buf_flags = CL_MEM_READ_WRITE;
 	if( b_use_host_buffer )
 		buf_flags |= CL_MEM_ALLOC_HOST_PTR;
@@ -373,7 +378,7 @@ int main(int argc, char* argv[]){
 	//flushed_printf("Ok\n");
 
 	// Create kernels
-	flushed_printf("Creating kernels... ");
+	flushed_printf("Creating kernels...  ");
 	cl_kernel *kernels_init = (cl_kernel*)alloca(sizeof(cl_kernel)*(max_log2_stride+1));
 	cl_kernel *kernels1 = (cl_kernel*)alloca(sizeof(cl_kernel)*(max_log2_stride+1));
 	for(int stride_offset=0; stride_offset<=(int)max_log2_stride; stride_offset++){
@@ -392,7 +397,7 @@ int main(int argc, char* argv[]){
 	cl_event ev_wait;
 
 	// Initialize buffer
-	flushed_printf("Zeroing buffer... ");
+	flushed_printf("Zeroing buffer...    ");
 	OCL_SAFE_CALL( clSetKernelArg(kernels_init[0], 0, sizeof(cl_mem), &dev_buffer) );
 	OCL_SAFE_CALL( clSetKernelArg(kernels_init[0], 1, sizeof(cl_int), &index_space) );
 	OCL_SAFE_CALL( clSetKernelArg(kernels_init[0], 2, sizeof(cl_int), &zero) );
@@ -444,7 +449,7 @@ int main(int argc, char* argv[]){
 				variance += sqr(times[i]-average_time);
 			variance /= REPETITIONS;
 			double variation_coeff = sqrt(variance)/average_time;
-			const double VAR_COEFF_THRESHOLD = 0.25;
+			const double VAR_COEFF_THRESHOLD = 0.3;
 			if( variation_coeff<VAR_COEFF_THRESHOLD )
 				do_run_experiment = 0;
 			//else flushed_printf("%e\n", variation_coeff);//show_progress_step(1, 'E');
@@ -482,9 +487,9 @@ int main(int argc, char* argv[]){
 			stride_offset, 
 			pow2(log2_indexes)*vecsize*sizeof(int)/(total_times[stride_offset]*1000.0*1000.0*1000.0), 
 			1000.0*total_times[stride_offset]);
-		if( stride_offset == log2_grid ) printf(" *Special case: All workitems access sequential elements doing grid strides");
-		if( stride_offset == log2_wgroup ) printf(" *Special case: All workitems access sequential elements doing workgroup strides");
-		if( stride_offset == 0 ) printf(" *Special case: A workitem accesses elements only sequentially");
+		if( stride_offset == log2_grid ) printf(" *Grid striding");
+		if( stride_offset == log2_wgroup ) printf(" *Workgroup striding");
+		if( stride_offset == 0 && max_log2_stride>0 ) printf(" *Serial accesses");
 	}
 	printf("\n");
 	
@@ -503,14 +508,17 @@ int main(int argc, char* argv[]){
 				stride_offset, 
 				1000.0*total_times[stride_offset], 
 				pow2(log2_indexes)*vecsize*sizeof(int)/(total_times[stride_offset]*1000.0*1000.0*1000.0));*/
+		fprintf(of, "workgroup size, vector width, index space (log2), grid space (log2), workgroups, granularity, stride (log2), bandwidth (GB/sec), time (msecs)\n");
 		for(int stride_offset=0; stride_offset<(int)max_log2_stride; stride_offset++)
+			fprintf(of, "%d, %d, %d, %d, %d, %d, %2d, %7.3f, %7.3f\n", pow2(log2_wgroup), vecsize, log2_indexes, log2_grid, pow2(log2_grid-log2_wgroup), pow2(log2_indexes-log2_grid), stride_offset, pow2(log2_indexes)*vecsize*sizeof(int)/(total_times[stride_offset]*1000.0*1000.0*1000.0), 1000.0*total_times[stride_offset]);
+		/*for(int stride_offset=0; stride_offset<(int)max_log2_stride; stride_offset++)
 			fprintf(of, "%7d, ", stride_offset);
 		fprintf(of, "%7d ", (int)max_log2_stride);
 		fprintf(of, "\n");
 		for(int stride_offset=0; stride_offset<(int)max_log2_stride; stride_offset++)
 			fprintf(of, "%7.3f, ", pow2(log2_indexes)*vecsize*sizeof(int)/(total_times[stride_offset]*1000.0*1000.0*1000.0));
 		fprintf(of, "%7.3f ", pow2(log2_indexes)*vecsize*sizeof(int)/(total_times[max_log2_stride]*1000.0*1000.0*1000.0));
-		fprintf(of, "\n");
+		fprintf(of, "\n");*/
 		fclose(of);
 	}
 	
