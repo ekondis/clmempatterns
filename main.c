@@ -174,9 +174,13 @@ void cl_helper_ValidateDeviceSelection(cl_device_id dev){
 	char *cl_plf_name = (char*)alloca( len );
 	OCL_SAFE_CALL( clGetPlatformInfo(platform, CL_PLATFORM_NAME, len, cl_plf_name, NULL) );
 
+	cl_uint addr_bits;
+	OCL_SAFE_CALL( clGetDeviceInfo(dev, CL_DEVICE_ADDRESS_BITS, sizeof(addr_bits), &addr_bits, NULL) );
+
 	printf("Selected platform: %s\n", cl_plf_name);
 	printf("Selected device  : %s\n", cl_dev_name);
 	printf("Driver version   : %s\n", cl_driver_version);
+	printf("Address bits     : %u\n", addr_bits);
 }
 
 cl_program cl_helper_CreateBuildProgram(cl_context context, cl_device_id device, const char* src, const char *options){
