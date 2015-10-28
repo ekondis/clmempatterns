@@ -36,3 +36,7 @@ clmempatterns
 
 # Other
 kernel.h
+
+# Visual studio related files
+*.vcxproj
+*.vcxproj.filters
