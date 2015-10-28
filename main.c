@@ -9,6 +9,7 @@
 #ifndef _MSC_VER
 #include <alloca.h>
 #endif
+#define CL_USE_DEPRECATED_OPENCL_2_0_APIS
 #include <CL/opencl.h>
 
 #include "kernel.h"
@@ -219,7 +220,7 @@ double cl_helper_GetExecTimeAndRelease(cl_event ev){
 }
 
 int main(int argc, char* argv[]){
-	printf("clmempatterns rel. 0.3\n");
+	printf("clmempatterns rel. 0.3git\n");
 	printf("Developed by Elias Konstantinidis (ekondis@gmail.com)\n\n");
 
 	// Parameters
@@ -256,22 +257,22 @@ int main(int argc, char* argv[]){
 					break;
 				// index magnitude
 				case 1:
-					log2_indexes = strtoul(argv[2], NULL, 10);
+					log2_indexes = value;
 					arg_count++;
 					break;
 				// grid magnitude
 				case 2:
-					log2_grid    = strtoul(argv[3], NULL, 10);
+					log2_grid    = value;
 					arg_count++;
 					break;
 				// workgroup size magnitude
 				case 3:
-					log2_wgroup  = strtoul(argv[4], NULL, 10);
+					log2_wgroup  = value;
 					arg_count++;
 					break;
 				// vector width
 				case 4:
-					vecsize      = strtoul(argv[5], NULL, 10); // 1, 2, 4, 8, 16
+					vecsize      = value; // 1, 2, 4, 8, 16
 					arg_count++;
 					break;
 				default:
