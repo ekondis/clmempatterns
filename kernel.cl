@@ -44,9 +44,9 @@ __kernel void kernel1(__global DATATYPE *data, const uint n) {
 //	#pragma unroll
 	for(int i=0; i<GRANULARITY; i++){
 		DATATYPE v = data[index+i*STRIDE];
-		uint v_sum = CMD(reduce, DATATYPE)(v);
+		int v_sum = CMD(reduce, DATATYPE)(v);
 		if( v_sum>0 )
-			data[index+i*STRIDE] = (DATATYPE)v_sum;
+			data[index+i*STRIDE] = (DATATYPE)0;
 		//tmp = tmp+data[index+i*STRIDE];
 		//data[index+i*STRIDE] = (DATATYPE)(index+i*STRIDE);
 	}
