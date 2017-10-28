@@ -30,8 +30,8 @@ __kernel void initialize(__global DATATYPE *data, const uint n, const int v) {
 __kernel void kernel1(__global DATATYPE *data, const uint n) {
 	// Get our global thread ID
 	const uint id = get_global_id(0);
-	const uint  low_order_id = id & (  STRIDE - 1 );
-	const uint high_order_id = id & (~(STRIDE - 1));
+	const uint  low_order_id = id & ( (uint)(STRIDE - 1));
+	const uint high_order_id = id & (~(uint)(STRIDE - 1));
 	const uint index = (high_order_id << GRANULARITY_ORDER) | low_order_id;
 	const int localid = get_local_id(0);
 	const int group_size = get_local_size(0);
