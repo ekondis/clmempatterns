@@ -317,7 +317,7 @@ int main(int argc, char* argv[]){
 	printf("vector width    : %d (type: int%s)\n", vecsize, s_vecsize);
 	//printf("element space   : %d\n", pow2(log2_indexes)*vecsize);
 	{
-		unsigned long int req_mem = pow2(log2_indexes)*vecsize*sizeof(int)/1024;
+		unsigned long int req_mem = (unsigned long int)(pow2(log2_indexes))*vecsize*sizeof(int)/1024;
 		char req_mem_unit = 'K';
 		if( req_mem>=1024*8 ){
 			req_mem /= 1024;
