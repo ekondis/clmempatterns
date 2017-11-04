@@ -308,9 +308,13 @@ int main(int argc, char* argv[]){
 		exit(1);
 	}
 
+	char s_vecsize[3] = "";
+	if( vecsize>1 )
+		sprintf(s_vecsize, "%d", vecsize);
+
 	printf("\nBenchmark parameters:\n");
 	printf("index space     : %d\n", pow2(log2_indexes));
-	printf("vector width    : %d (type: int%c)\n", vecsize, vecsize==1 ? ' ' : '0'+vecsize);
+	printf("vector width    : %d (type: int%s)\n", vecsize, s_vecsize);
 	//printf("element space   : %d\n", pow2(log2_indexes)*vecsize);
 	{
 		unsigned long int req_mem = pow2(log2_indexes)*vecsize*sizeof(int)/1024;
@@ -375,7 +379,7 @@ int main(int argc, char* argv[]){
 	cl_program *programs = (cl_program*)alloca(sizeof(cl_program)*(max_log2_stride+1));
 	show_progress_init(max_log2_stride+1);
 	for(int stride_offset=0; stride_offset<=(int)max_log2_stride; stride_offset++){
-		sprintf(c_compile_options, "-cl-std=CL1.1 -DDATATYPE=int%c -DSTRIDE_ORDER=%d -DGRANULARITY_ORDER=%d", (vecsize==1 ? ' ' : ('0'+vecsize)), stride_offset, log2_indexes-log2_grid);
+		sprintf(c_compile_options, "-cl-std=CL1.1 -DDATATYPE=int%s -DSTRIDE_ORDER=%d -DGRANULARITY_ORDER=%d", s_vecsize, stride_offset, log2_indexes-log2_grid);
 		//printf("Using options %s\n", c_compile_options);
 		programs[stride_offset] = cl_helper_CreateBuildProgram(context, selected_device_id, c_kernel, c_compile_options);
 	}
