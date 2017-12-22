@@ -12,6 +12,7 @@
 #define CL_USE_DEPRECATED_OPENCL_2_0_APIS
 #include <CL/opencl.h>
 
+#include "timestamp.h"
 #include "kernel.h"
 
 #  define OCL_SAFE_CALL(call) {                                              \
@@ -21,6 +22,8 @@
                 __FILE__, __LINE__, err );                                   \
         exit(EXIT_FAILURE);                                                  \
     } }
+
+timestamp ts_start;
 
 unsigned int pow2(unsigned int v){
 	return 1 << v;
@@ -209,12 +212,15 @@ cl_program cl_helper_CreateBuildProgram(cl_context context, cl_device_id device,
 	return program;
 }
 
-double cl_helper_GetExecTimeAndRelease(cl_event ev){
+double cl_helper_GetExecTimeAndRelease(cl_event ev, int get_time){
 	cl_ulong ev_t_start, ev_t_finish;
 	OCL_SAFE_CALL( clWaitForEvents(1, &ev) );
-	OCL_SAFE_CALL( clGetEventProfilingInfo(ev, CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &ev_t_start, NULL) );
-	OCL_SAFE_CALL( clGetEventProfilingInfo(ev, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &ev_t_finish, NULL) );
-	double time = (ev_t_finish-ev_t_start)/1000000000.0;
+	double time = 0.;
+	if( get_time ){
+		OCL_SAFE_CALL( clGetEventProfilingInfo(ev, CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &ev_t_start, NULL) );
+		OCL_SAFE_CALL( clGetEventProfilingInfo(ev, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &ev_t_finish, NULL) );
+		time = (ev_t_finish-ev_t_start)/1000000000.0;
+	}
 	OCL_SAFE_CALL( clReleaseEvent( ev ) );
 	return time;
 }
@@ -231,6 +237,7 @@ int main(int argc, char* argv[]){
 	unsigned int vecsize      =  2; // 1, 2, 4, 8, 16
 	char *foutput = NULL;
 	int b_use_host_buffer     = 0; // default: device allocated buffer
+	int b_use_os_timer        = 0; // default: OpenCL event timer
 
 	// parse arguments
 	int arg_count = 0;
@@ -240,6 +247,8 @@ int main(int argc, char* argv[]){
 			break;
 		} else if( (strcmp(argv[i], "-H")==0) || (strcmp(argv[i], "--host")==0) ) {
 			b_use_host_buffer = 1;
+		} else if( (strcmp(argv[i], "-t")==0) || (strcmp(argv[i], "--use-os-timer")==0) ) {
+			b_use_os_timer = 1;
 		} else if( (strcmp(argv[i], "-o")==0) || (strcmp(argv[i], "--output")==0) ) {
 			if( ++i>=argc ){
 				selected_device_id = (cl_device_id)-1;
@@ -287,6 +296,7 @@ int main(int argc, char* argv[]){
 		printf("Options:\n"
 			"-h or --help          Show this message\n"
 			"-H or --host          Use host allocated buffer (CL_MEM_ALLOC_HOST_PTR)\n"
+			"-t or --use-os-timer  Use standard OS timer instead of OpenCL profiling timer\n"
 			"-o or --output <file> Save CSV output to <file>\n\n");
 
 		cl_helper_PrintAvailableDevices();
@@ -334,6 +344,7 @@ int main(int argc, char* argv[]){
 	//printf("total workgroups: %d\n", pow2(log2_grid-log2_wgroup));
 	printf("granularity     : %d\n", pow2(log2_indexes-log2_grid));
 	printf("allocated buffer: %s\n", b_use_host_buffer ? "host" : "device");
+	printf("Timer           : %s\n", b_use_os_timer ? "OS based" : "CL event based");
 
 //puts(c_kernel);
 
@@ -363,7 +374,7 @@ int main(int argc, char* argv[]){
 	flushed_printf("Ok\n");
 	
 	// Create command queue
-	cl_command_queue cmd_queue = clCreateCommandQueue(context, selected_device_id, CL_QUEUE_PROFILING_ENABLE, &errno);
+	cl_command_queue cmd_queue = clCreateCommandQueue(context, selected_device_id, b_use_os_timer ? 0 : CL_QUEUE_PROFILING_ENABLE, &errno);
 	OCL_SAFE_CALL(errno);
 
 	// Initialize buffer
@@ -445,8 +456,11 @@ int main(int argc, char* argv[]){
 			for(int i=0; i<REPETITIONS; i++){
 				const char chr_progress[] = "\\|/-";
 				show_progress_step(0, chr_progress[i%4]);
+				ts_start = getTimestamp();
 				OCL_SAFE_CALL( clEnqueueNDRangeKernel(cmd_queue, kernels1[stride_offset], 1, NULL, glWS, lcWS, 0, NULL, &ev_wait) );
-				times[i] = cl_helper_GetExecTimeAndRelease(ev_wait);
+				times[i] = cl_helper_GetExecTimeAndRelease(ev_wait, !b_use_os_timer);
+				if( b_use_os_timer )
+					times[i] = getElapsedtime(ts_start)/1000.;
 			}
 			qsort(times, REPETITIONS, sizeof(times[0]), compare_doubles);
 			const double median_time = REPETITIONS % 2 ? times[REPETITIONS/2] : (times[REPETITIONS/2-1]+times[REPETITIONS/2])/2;
