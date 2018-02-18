@@ -1,6 +1,5 @@
-#OCLSDKDIR = /opt/cuda
-#OCLSDKDIR = /usr/local/cuda
-OCLSDKDIR = ${AMDAPPSDKROOT}
+OCLSDKDIR = /usr/local/cuda
+#OCLSDKDIR = /opt/rocm/opencl
 CXX = gcc
 OCLSDKINC = ${OCLSDKDIR}/include
 OCLSDKLIB = ${OCLSDKDIR}/lib/x86_64/
